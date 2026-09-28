@@ -32,6 +32,19 @@ function selectedValue(name) {
   return choice ? choice.value : "";
 }
 
+function syncLongRunDistance() {
+  const isLongRun = selectedValue("run-type") === "long_run";
+  const distanceInputs = document.querySelectorAll('input[name="distance"]');
+  distanceInputs.forEach(function(input) {
+    const isLocked = isLongRun && input.value !== "10";
+    input.disabled = isLocked;
+    input.closest("label").classList.toggle("is-locked", isLocked);
+  });
+  if (isLongRun) {
+    document.querySelector('input[name="distance"][value="10"]').checked = true;
+  }
+}
+
 function dayTypeLabel(dayType) {
   return dayType === "Holiday" ? "휴일" : "평일";
 }
@@ -244,8 +257,8 @@ async function refreshScores() {
   });
   if (!state.selected) {
     setPanel(
-      "예시 점수 지도를 불러왔습니다",
-      payload.month + "월 " + dayTypeLabel(payload.day_type) + " " + String(payload.hour).padStart(2, "0") + ":00 조건입니다."
+      "선택 조건의 맞춤 점수 지도를 불러왔습니다",
+      payload.run_type_label + " · " + payload.month + "월 " + dayTypeLabel(payload.day_type) + " " + String(payload.hour).padStart(2, "0") + ":00 조건입니다."
     );
   }
 }
@@ -277,17 +290,29 @@ function setRouteLine(coordinates) {
   });
 }
 
-function easeInOutCubic(progress) {
-  return progress < 0.5
-    ? 4 * progress * progress * progress
-    : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+function updateRouteProgress(route, stepIndex) {
+  const step = route[stepIndex];
+  setPanel(
+    "\uacbd\ub85c \ud0d0\uc0c9 " + stepIndex + " / " + (route.length - 1),
+    step.address_label + " \u00b7 Score " + step.score
+  );
+  setSummary([
+    ["\ud604\uc7ac \uc704\uce58", step.district],
+    ["\ud604\uc7ac \uaca9\uc790", step.grid_id],
+    ["\ub204\uc801 \uac70\ub9ac", (stepIndex * 250).toLocaleString() + "m"],
+    ["\ud604\uc7ac Score", String(step.score)],
+  ]);
 }
 
-function animateRunnerSegment(fromStep, toStep, routeCoordinates, token) {
-  const duration = 1250;
-  const start = performance.now();
-  const from = [fromStep.longitude, fromStep.latitude];
-  const to = [toStep.longitude, toStep.latitude];
+function animateRunnerRoute(route, token) {
+  const segmentDuration = 700;
+  const finalStepIndex = route.length - 1;
+  const routeCoordinates = route.map(function(step) {
+    return [step.longitude, step.latitude];
+  });
+  const startedAt = performance.now();
+  let lastVisitedIndex = 0;
+  let lastDisplayedIndex = 0;
 
   return new Promise(function(resolve) {
     function frame(now) {
@@ -295,18 +320,38 @@ function animateRunnerSegment(fromStep, toStep, routeCoordinates, token) {
         resolve(false);
         return;
       }
-      const progress = Math.min((now - start) / duration, 1);
-      const eased = easeInOutCubic(progress);
-      const position = [
-        from[0] + (to[0] - from[0]) * eased,
-        from[1] + (to[1] - from[1]) * eased,
-      ];
-      state.runnerMarker.setLngLat(position);
-      setRouteLine(routeCoordinates.concat([position]));
 
-      if (progress < 1) {
+      const elapsed = now - startedAt;
+      const routeProgress = Math.min(elapsed / segmentDuration, finalStepIndex);
+      const segmentIndex = Math.min(Math.floor(routeProgress), finalStepIndex - 1);
+      const segmentProgress = routeProgress - segmentIndex;
+      const from = routeCoordinates[segmentIndex];
+      const to = routeCoordinates[segmentIndex + 1];
+      const position = [
+        from[0] + (to[0] - from[0]) * segmentProgress,
+        from[1] + (to[1] - from[1]) * segmentProgress,
+      ];
+
+      state.runnerMarker.setLngLat(position);
+      setRouteLine(routeCoordinates.slice(0, segmentIndex + 1).concat([position]));
+
+      const completedIndex = Math.min(Math.floor(routeProgress), finalStepIndex);
+      while (lastVisitedIndex < completedIndex) {
+        lastVisitedIndex += 1;
+        state.map.setFeatureState(
+          { source: "grids", id: route[lastVisitedIndex].feature_id },
+          { visited: true }
+        );
+      }
+      if (completedIndex > lastDisplayedIndex) {
+        lastDisplayedIndex = completedIndex;
+        updateRouteProgress(route, completedIndex);
+      }
+
+      if (routeProgress < finalStepIndex) {
         window.requestAnimationFrame(frame);
       } else {
+        setRouteLine(routeCoordinates);
         resolve(true);
       }
     }
@@ -320,54 +365,25 @@ async function animateRoute(payload) {
   const route = payload.route;
   const runnerElement = document.createElement("div");
   runnerElement.className = "runner-marker";
-  runnerElement.textContent = "🏃";
+  runnerElement.textContent = "\ud83c\udfc3";
   state.runnerMarker = new maplibregl.Marker({ element: runnerElement, anchor: "center" })
     .setLngLat([route[0].longitude, route[0].latitude])
     .addTo(state.map);
 
-  const coordinates = [[route[0].longitude, route[0].latitude]];
-  state.routeFeatureIds.push(route[0].feature_id);
+  state.routeFeatureIds = route.map(function(step) { return step.feature_id; });
   state.map.setFeatureState({ source: "grids", id: route[0].feature_id }, { visited: true });
-  setPanel("경로 탐색 0 / " + (route.length - 1), route[0].address_label + " · Score " + route[0].score);
-  setSummary([
-    ["현재 위치", route[0].district],
-    ["현재 격자", route[0].grid_id],
-    ["누적 거리", "0m"],
-    ["현재 Score", String(route[0].score)],
-  ]);
+  setRouteLine([[route[0].longitude, route[0].latitude]]);
+  updateRouteProgress(route, 0);
 
-  for (let index = 1; index < route.length; index += 1) {
-    if (token !== state.animationToken) return;
-    const previousStep = route[index - 1];
-    const step = route[index];
-    setPanel(
-      "경로 탐색 " + index + " / " + (route.length - 1),
-      previousStep.address_label + "에서 " + step.address_label + "으로 이동 중"
-    );
-    const completed = await animateRunnerSegment(previousStep, step, coordinates, token);
-    if (!completed || token !== state.animationToken) return;
-    coordinates.push([step.longitude, step.latitude]);
-    state.routeFeatureIds.push(step.feature_id);
-    state.map.setFeatureState({ source: "grids", id: step.feature_id }, { visited: true });
-    setRouteLine(coordinates);
-    setPanel(
-      "경로 탐색 " + index + " / " + (route.length - 1),
-      step.address_label + " · Score " + step.score
-    );
-    setSummary([
-      ["현재 위치", step.district],
-      ["현재 격자", step.grid_id],
-      ["누적 거리", (index * 250).toLocaleString() + "m"],
-      ["현재 Score", String(step.score)],
-    ]);
-  }
+  const completed = route.length === 1 || await animateRunnerRoute(route, token);
+  if (!completed || token !== state.animationToken) return;
 
-  setPanel("경로 탐색 완료", "방문한 격자와 이동 경로를 지도에 표시했습니다.");
+  setPanel("\uacbd\ub85c \ud0d0\uc0c9 \uc644\ub8cc", "\ubc29\ubb38\ud55c \uaca9\uc790\uc640 \uc774\ub3d9 \uacbd\ub85c\ub97c \uc9c0\ub3c4\uc5d0 \ud45c\uc2dc\ud588\uc2b5\ub2c8\ub2e4.");
   setSummary([
-    ["출발 격자", route[0].grid_id],
-    ["방문 격자", String(route.length) + "개"],
-    ["예상 거리", payload.estimated_distance_m.toLocaleString() + "m"],
-    ["평균 Score", String(payload.mean_score)],
+    ["\ucd9c\ubc1c \uaca9\uc790", route[0].grid_id],
+    ["\ubc29\ubb38 \uaca9\uc790", String(route.length) + "\uac1c"],
+    ["\uc608\uc0c1 \uac70\ub9ac", payload.estimated_distance_m.toLocaleString() + "m"],
+    ["\ud3c9\uade0 Score", String(payload.mean_score)],
   ]);
   if (payload.termination_reason) {
     routeStop.textContent = payload.termination_reason;
@@ -387,7 +403,7 @@ async function findRoute() {
   state.isRouting = true;
   routeButton.disabled = true;
   routeButton.textContent = "탐색 중";
-  setPanel("최적 격자 경로를 계산하고 있습니다", "선택 조건의 예시 Final Score를 비교합니다.");
+  setPanel("최적 격자 경로를 계산하고 있습니다", "선택한 날짜·시간과 러닝 유형의 가중 점수를 비교합니다.");
   resetSummary();
 
   const payload = {
@@ -429,6 +445,7 @@ document.querySelectorAll('input[name="distance"], input[name="start-mode"]').fo
 });
 document.querySelectorAll('input[name="run-type"]').forEach(function(element) {
   element.addEventListener("change", function() {
+    syncLongRunDistance();
     refreshScores();
     updateRouteButton();
   });
@@ -442,4 +459,5 @@ document.addEventListener("keydown", function(event) {
   if (event.key === "Escape") hideValidationModal();
 });
 
+syncLongRunDistance();
 initializeMap();

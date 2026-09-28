@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections import deque
 from datetime import date as Date
 from functools import lru_cache
 from pathlib import Path
@@ -130,12 +131,15 @@ DIRECTION_DELTAS = {
     "down": (0, -1),
     "left": (-1, 0),
 }
+MOVE_TARGETS = {3: 12, 5: 20, 10: 40}
+LONG_RUN_RECENT_GRID_LIMIT = 4
+LONG_RUN_REVISIT_PENALTY = 15.0
 
 
 class RouteRequest(BaseModel):
     date: str
     hour: int = Field(ge=0, le=23)
-    distance_km: Literal[3, 5]
+    distance_km: Literal[3, 5, 10]
     start_mode: Literal["current", "best_within_1km"]
     run_type: RunType = "basic_recommendation"
     longitude: float
@@ -271,9 +275,12 @@ def build_greedy_route(
     score_map: dict[int, float],
     distance_km: int,
 ) -> tuple[list[dict], str | None]:
-    move_target = 12 if distance_km == 3 else 20
+    move_target = MOVE_TARGETS[distance_km]
+    strict_no_revisit = distance_km in {3, 5}
     route = [start_feature_id]
     visited = {start_feature_id}
+    visit_counts = {start_feature_id: 1}
+    recent_grids = deque([start_feature_id], maxlen=LONG_RUN_RECENT_GRID_LIMIT)
     current_feature_id = start_feature_id
     last_direction: str | None = None
     termination_reason: str | None = None
@@ -282,29 +289,41 @@ def build_greedy_route(
         current = GRID_BY_FEATURE_ID[current_feature_id]
         current_col = int(current["grid_col"])
         current_row = int(current["grid_row"])
-        candidates: list[tuple[int, int, int, str]] = []
+        candidates: list[tuple[int, float, int, int, str]] = []
 
         for direction_index, direction in enumerate(DIRECTION_ORDER):
             col_delta, row_delta = DIRECTION_DELTAS[direction]
             candidate_feature_id = GRID_BY_COORD.get((current_col + col_delta, current_row + row_delta))
-            if candidate_feature_id is None or candidate_feature_id in visited:
+            if candidate_feature_id is None or candidate_feature_id not in score_map:
                 continue
-            if candidate_feature_id not in score_map:
+            if strict_no_revisit and candidate_feature_id in visited:
+                continue
+            if not strict_no_revisit and candidate_feature_id in recent_grids:
                 continue
 
+            revisit_count = visit_counts.get(candidate_feature_id, 0)
+            effective_score = score_map[candidate_feature_id]
+            if not strict_no_revisit:
+                effective_score -= LONG_RUN_REVISIT_PENALTY * revisit_count
             continue_penalty = 0 if direction == last_direction else 1
-            candidates.append((candidate_feature_id, continue_penalty, direction_index, direction))
+            candidates.append((candidate_feature_id, effective_score, continue_penalty, direction_index, direction))
 
         if not candidates:
-            termination_reason = "\ub354 \uc774\uc0c1 \ubc29\ubb38\ud558\uc9c0 \uc54a\uc740 \uc720\ud6a8 \uc778\uc811 \uaca9\uc790\uac00 \uc5c6\uc5b4 \ud0d0\uc0c9\uc744 \uc885\ub8cc\ud588\uc2b5\ub2c8\ub2e4."
+            termination_reason = (
+                "\ub354 \uc774\uc0c1 \uc774\ub3d9\ud560 \uc218 \uc788\ub294 \uc778\uc811 \uaca9\uc790\uac00 \uc5c6\uc5b4 \ud0d0\uc0c9\uc744 \uc885\ub8cc\ud588\uc2b5\ub2c8\ub2e4."
+                if strict_no_revisit
+                else "\ucd5c\uadfc \uacbd\ub85c\ub97c \ubc18\ubcf5\ud558\uc9c0 \uc54a\ub294 \uc778\uc811 \uaca9\uc790\uac00 \uc5c6\uc5b4 10km \ud0d0\uc0c9\uc744 \uc885\ub8cc\ud588\uc2b5\ub2c8\ub2e4."
+            )
             break
 
-        next_feature_id, _, _, next_direction = min(
+        next_feature_id, _, _, _, next_direction = min(
             candidates,
-            key=lambda item: (-score_map[item[0]], item[1], item[2]),
+            key=lambda item: (-item[1], item[2], item[3]),
         )
         route.append(next_feature_id)
         visited.add(next_feature_id)
+        visit_counts[next_feature_id] = visit_counts.get(next_feature_id, 0) + 1
+        recent_grids.append(next_feature_id)
         current_feature_id = next_feature_id
         last_direction = next_direction
 
@@ -355,6 +374,7 @@ def scores(
 @app.post("/api/route")
 def route(request: RouteRequest) -> dict:
     month, day_type, hour = parse_condition(request.date, request.hour)
+    distance_km = 10 if request.run_type == "long_run" else request.distance_km
     score_frame = calculate_scores(month, day_type, hour, request.run_type)
     score_map = {
         int(row.feature_id): float(row.final_score)
@@ -367,14 +387,14 @@ def route(request: RouteRequest) -> dict:
         if request.start_mode == "current"
         else choose_best_start(current_feature_id, score_map)
     )
-    route_steps, termination_reason = build_greedy_route(start_feature_id, score_map, request.distance_km)
+    route_steps, termination_reason = build_greedy_route(start_feature_id, score_map, distance_km)
 
     return {
         "condition": {
             "month": month,
             "day_type": day_type,
             "hour": hour,
-            "distance_km": request.distance_km,
+            "distance_km": distance_km,
             "start_mode": request.start_mode,
             "run_type": request.run_type,
             "run_type_label": RUN_TYPE_LABELS[request.run_type],
@@ -382,7 +402,7 @@ def route(request: RouteRequest) -> dict:
         "clicked_feature_id": current_feature_id,
         "start_feature_id": start_feature_id,
         "route": route_steps,
-        "target_moves": 12 if request.distance_km == 3 else 20,
+        "target_moves": MOVE_TARGETS[distance_km],
         "actual_moves": len(route_steps) - 1,
         "estimated_distance_m": (len(route_steps) - 1) * 250,
         "mean_score": round(float(np.mean([step["score"] for step in route_steps])), 1),
