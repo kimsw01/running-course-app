@@ -321,38 +321,41 @@ function animateRunnerRoute(route, token) {
         return;
       }
 
-      const elapsed = now - startedAt;
-      const routeProgress = Math.min(elapsed / segmentDuration, finalStepIndex);
-      const segmentIndex = Math.min(Math.floor(routeProgress), finalStepIndex - 1);
-      const segmentProgress = routeProgress - segmentIndex;
-      const from = routeCoordinates[segmentIndex];
-      const to = routeCoordinates[segmentIndex + 1];
-      const position = [
-        from[0] + (to[0] - from[0]) * segmentProgress,
-        from[1] + (to[1] - from[1]) * segmentProgress,
-      ];
+      try {
+        const elapsed = now - startedAt;
+        const routeProgress = Math.min(elapsed / segmentDuration, finalStepIndex);
+        const segmentIndex = Math.min(Math.floor(routeProgress), finalStepIndex - 1);
+        const segmentProgress = routeProgress - segmentIndex;
+        const from = routeCoordinates[segmentIndex];
+        const to = routeCoordinates[segmentIndex + 1];
+        const position = [
+          from[0] + (to[0] - from[0]) * segmentProgress,
+          from[1] + (to[1] - from[1]) * segmentProgress,
+        ];
 
-      state.runnerMarker.setLngLat(position);
-      setRouteLine(routeCoordinates.slice(0, segmentIndex + 1).concat([position]));
+        state.runnerMarker.setLngLat(position);
 
-      const completedIndex = Math.min(Math.floor(routeProgress), finalStepIndex);
-      while (lastVisitedIndex < completedIndex) {
-        lastVisitedIndex += 1;
-        state.map.setFeatureState(
-          { source: "grids", id: route[lastVisitedIndex].feature_id },
-          { visited: true }
-        );
-      }
-      if (completedIndex > lastDisplayedIndex) {
-        lastDisplayedIndex = completedIndex;
-        updateRouteProgress(route, completedIndex);
-      }
+        const completedIndex = Math.min(Math.floor(routeProgress), finalStepIndex);
+        while (lastVisitedIndex < completedIndex) {
+          lastVisitedIndex += 1;
+          state.map.setFeatureState(
+            { source: "grids", id: route[lastVisitedIndex].feature_id },
+            { visited: true }
+          );
+        }
+        if (completedIndex > lastDisplayedIndex) {
+          lastDisplayedIndex = completedIndex;
+          updateRouteProgress(route, completedIndex);
+        }
 
-      if (routeProgress < finalStepIndex) {
-        window.requestAnimationFrame(frame);
-      } else {
-        setRouteLine(routeCoordinates);
-        resolve(true);
+        if (routeProgress < finalStepIndex) {
+          window.requestAnimationFrame(frame);
+        } else {
+          resolve(true);
+        }
+      } catch (error) {
+        console.error("Runner animation failed:", error);
+        resolve(false);
       }
     }
     window.requestAnimationFrame(frame);
@@ -372,7 +375,9 @@ async function animateRoute(payload) {
 
   state.routeFeatureIds = route.map(function(step) { return step.feature_id; });
   state.map.setFeatureState({ source: "grids", id: route[0].feature_id }, { visited: true });
-  setRouteLine([[route[0].longitude, route[0].latitude]]);
+  setRouteLine(route.map(function(step) {
+    return [step.longitude, step.latitude];
+  }));
   updateRouteProgress(route, 0);
 
   const completed = route.length === 1 || await animateRunnerRoute(route, token);
