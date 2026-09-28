@@ -5,6 +5,9 @@ const state = {
   runnerMarker: null,
   scoreFeatureIds: [],
   routeFeatureIds: [],
+  routeFeatureIdSet: new Set(),
+  routeComplete: false,
+  routeHoverPopup: null,
   animationToken: 0,
   isRouting: false,
 };
@@ -189,8 +192,10 @@ function initializeMap() {
     map.on("mouseenter", "grid-fill", function() {
       map.getCanvas().style.cursor = "crosshair";
     });
+    map.on("mousemove", "grid-fill", showRouteGridLabel);
     map.on("mouseleave", "grid-fill", function() {
       map.getCanvas().style.cursor = "";
+      hideRouteGridLabel();
     });
     map.on("click", "grid-fill", selectGrid);
   });
@@ -265,10 +270,13 @@ async function refreshScores() {
 
 function clearRoute() {
   state.animationToken += 1;
+  state.routeComplete = false;
+  hideRouteGridLabel();
   state.routeFeatureIds.forEach(function(featureId) {
     state.map.setFeatureState({ source: "grids", id: featureId }, { visited: false });
   });
   state.routeFeatureIds = [];
+  state.routeFeatureIdSet = new Set();
   if (state.runnerMarker) {
     state.runnerMarker.remove();
     state.runnerMarker = null;
@@ -288,6 +296,34 @@ function setRouteLine(coordinates) {
     type: "Feature",
     geometry: { type: "LineString", coordinates: coordinates },
   });
+}
+
+function hideRouteGridLabel() {
+  if (state.routeHoverPopup) state.routeHoverPopup.remove();
+}
+
+function showRouteGridLabel(event) {
+  const feature = event.features && event.features[0];
+  const featureId = feature ? Number(feature.properties.feature_id) : null;
+  if (!state.routeComplete || !state.routeFeatureIdSet.has(featureId)) {
+    hideRouteGridLabel();
+    return;
+  }
+
+  const district = feature.properties.admin_district || feature.properties.district;
+  const dong = feature.properties.admin_dong;
+  const label = dong ? district + " " + dong : district;
+  if (!state.routeHoverPopup) {
+    state.routeHoverPopup = new maplibregl.Popup({
+      closeButton: false,
+      closeOnClick: false,
+      offset: 12,
+    });
+  }
+  state.routeHoverPopup
+    .setLngLat(event.lngLat)
+    .setText(label + " · 격자 중심점 기준")
+    .addTo(state.map);
 }
 
 function updateRouteProgress(route, stepIndex) {
@@ -374,6 +410,7 @@ async function animateRoute(payload) {
     .addTo(state.map);
 
   state.routeFeatureIds = route.map(function(step) { return step.feature_id; });
+  state.routeFeatureIdSet = new Set(state.routeFeatureIds);
   state.map.setFeatureState({ source: "grids", id: route[0].feature_id }, { visited: true });
   setRouteLine(route.map(function(step) {
     return [step.longitude, step.latitude];
@@ -383,7 +420,8 @@ async function animateRoute(payload) {
   const completed = route.length === 1 || await animateRunnerRoute(route, token);
   if (!completed || token !== state.animationToken) return;
 
-  setPanel("\uacbd\ub85c \ud0d0\uc0c9 \uc644\ub8cc", "\ubc29\ubb38\ud55c \uaca9\uc790\uc640 \uc774\ub3d9 \uacbd\ub85c\ub97c \uc9c0\ub3c4\uc5d0 \ud45c\uc2dc\ud588\uc2b5\ub2c8\ub2e4.");
+  state.routeComplete = true;
+  setPanel("\uacbd\ub85c \ud0d0\uc0c9 \uc644\ub8cc", "\ubc29\ubb38\ud55c \uaca9\uc790\uc5d0 \ub9c8\uc6b0\uc2a4\ub97c \uc62c\ub9ac\uba74 \uc790\uce58\uad6c\uc640 \ud589\uc815\ub3d9\uc744 \ud655\uc778\ud560 \uc218 \uc788\uc2b5\ub2c8\ub2e4.");
   setSummary([
     ["\ucd9c\ubc1c \uaca9\uc790", route[0].grid_id],
     ["\ubc29\ubb38 \uaca9\uc790", String(route.length) + "\uac1c"],

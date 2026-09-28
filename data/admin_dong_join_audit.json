@@ -1,0 +1,11 @@
+{
+  "source": "bnd_dong_11_2025_2Q (BASE_DATE 20250630)",
+  "assignment_basis": "grid center point; largest grid-polygon overlap only when the center point falls outside an administrative-dong polygon",
+  "total_grids": 8730,
+  "center_point_matches": 8564,
+  "largest_grid_overlap_matches": 166,
+  "unmatched_grids": 0,
+  "unique_admin_dongs": 425,
+  "score_district_vs_official_admin_district_mismatches": 41,
+  "display_rule": "address_label uses official admin_district + admin_dong; existing district remains unchanged because it is the score-source district."
+}
