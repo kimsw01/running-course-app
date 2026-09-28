@@ -6,6 +6,7 @@ const state = {
   scoreFeatureIds: [],
   routeFeatureIds: [],
   animationToken: 0,
+  isRouting: false,
 };
 
 const dateInput = document.getElementById("date-input");
@@ -15,6 +16,9 @@ const routeTitle = document.getElementById("route-title");
 const routeDetail = document.getElementById("route-detail");
 const routeSummary = document.getElementById("route-summary");
 const routeStop = document.getElementById("route-stop");
+const validationModal = document.getElementById("validation-modal");
+const missingConditions = document.getElementById("missing-conditions");
+const validationClose = document.getElementById("validation-close");
 
 for (let hour = 0; hour < 24; hour += 1) {
   const option = document.createElement("option");
@@ -33,18 +37,37 @@ function dayTypeLabel(dateText) {
   return day === 0 || day === 6 ? "주말" : "평일";
 }
 
+function missingConditionLabels() {
+  const missing = [];
+  if (!dateInput.value) missing.push("날짜");
+  if (hourInput.value === "") missing.push("시간");
+  if (!selectedValue("distance")) missing.push("목표 거리");
+  if (!selectedValue("start-mode")) missing.push("출발지");
+  if (!state.selected) missing.push("현재 위치 격자");
+  return missing;
+}
+
 function conditionsReady() {
-  return Boolean(
-    dateInput.value &&
-    hourInput.value !== "" &&
-    selectedValue("distance") &&
-    selectedValue("start-mode") &&
-    state.selected
-  );
+  return missingConditionLabels().length === 0;
 }
 
 function updateRouteButton() {
-  routeButton.disabled = !conditionsReady();
+  routeButton.disabled = state.isRouting;
+}
+
+function showValidationModal(missing) {
+  missingConditions.innerHTML = "";
+  missing.forEach(function(label) {
+    const item = document.createElement("li");
+    item.textContent = label;
+    missingConditions.appendChild(item);
+  });
+  validationModal.hidden = false;
+  validationClose.focus();
+}
+
+function hideValidationModal() {
+  validationModal.hidden = true;
 }
 
 function resetSummary() {
@@ -245,8 +268,50 @@ function clearRoute() {
   }
 }
 
-function sleep(milliseconds) {
-  return new Promise(function(resolve) { window.setTimeout(resolve, milliseconds); });
+function setRouteLine(coordinates) {
+  const source = state.map.getSource("route-line");
+  if (!source) return;
+  source.setData({
+    type: "Feature",
+    geometry: { type: "LineString", coordinates: coordinates },
+  });
+}
+
+function easeInOutCubic(progress) {
+  return progress < 0.5
+    ? 4 * progress * progress * progress
+    : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+}
+
+function animateRunnerSegment(fromStep, toStep, routeCoordinates, token) {
+  const duration = 1250;
+  const start = performance.now();
+  const from = [fromStep.longitude, fromStep.latitude];
+  const to = [toStep.longitude, toStep.latitude];
+
+  return new Promise(function(resolve) {
+    function frame(now) {
+      if (token !== state.animationToken || !state.runnerMarker) {
+        resolve(false);
+        return;
+      }
+      const progress = Math.min((now - start) / duration, 1);
+      const eased = easeInOutCubic(progress);
+      const position = [
+        from[0] + (to[0] - from[0]) * eased,
+        from[1] + (to[1] - from[1]) * eased,
+      ];
+      state.runnerMarker.setLngLat(position);
+      setRouteLine(routeCoordinates.concat([position]));
+
+      if (progress < 1) {
+        window.requestAnimationFrame(frame);
+      } else {
+        resolve(true);
+      }
+    }
+    window.requestAnimationFrame(frame);
+  });
 }
 
 async function animateRoute(payload) {
@@ -260,18 +325,31 @@ async function animateRoute(payload) {
     .setLngLat([route[0].longitude, route[0].latitude])
     .addTo(state.map);
 
-  const coordinates = [];
-  for (let index = 0; index < route.length; index += 1) {
+  const coordinates = [[route[0].longitude, route[0].latitude]];
+  state.routeFeatureIds.push(route[0].feature_id);
+  state.map.setFeatureState({ source: "grids", id: route[0].feature_id }, { visited: true });
+  setPanel("경로 탐색 0 / " + (route.length - 1), route[0].address_label + " · Score " + route[0].score);
+  setSummary([
+    ["현재 위치", route[0].district],
+    ["현재 격자", route[0].grid_id],
+    ["누적 거리", "0m"],
+    ["현재 Score", String(route[0].score)],
+  ]);
+
+  for (let index = 1; index < route.length; index += 1) {
     if (token !== state.animationToken) return;
+    const previousStep = route[index - 1];
     const step = route[index];
+    setPanel(
+      "경로 탐색 " + index + " / " + (route.length - 1),
+      previousStep.address_label + "에서 " + step.address_label + "으로 이동 중"
+    );
+    const completed = await animateRunnerSegment(previousStep, step, coordinates, token);
+    if (!completed || token !== state.animationToken) return;
     coordinates.push([step.longitude, step.latitude]);
     state.routeFeatureIds.push(step.feature_id);
     state.map.setFeatureState({ source: "grids", id: step.feature_id }, { visited: true });
-    state.runnerMarker.setLngLat([step.longitude, step.latitude]);
-    state.map.getSource("route-line").setData({
-      type: "Feature",
-      geometry: { type: "LineString", coordinates: coordinates },
-    });
+    setRouteLine(coordinates);
     setPanel(
       "경로 탐색 " + index + " / " + (route.length - 1),
       step.address_label + " · Score " + step.score
@@ -282,7 +360,6 @@ async function animateRoute(payload) {
       ["누적 거리", (index * 250).toLocaleString() + "m"],
       ["현재 Score", String(step.score)],
     ]);
-    if (index < route.length - 1) await sleep(1150);
   }
 
   setPanel("경로 탐색 완료", "방문한 격자와 이동 경로를 지도에 표시했습니다.");
@@ -299,8 +376,15 @@ async function animateRoute(payload) {
 }
 
 async function findRoute() {
-  if (!conditionsReady()) return;
+  const missing = missingConditionLabels();
+  if (missing.length) {
+    showValidationModal(missing);
+    setPanel("경로 탐색 전 조건을 확인해주세요", "선택하지 않은 항목을 화면 중앙에서 확인할 수 있습니다.");
+    return;
+  }
+  hideValidationModal();
   clearRoute();
+  state.isRouting = true;
   routeButton.disabled = true;
   routeButton.textContent = "탐색 중";
   setPanel("최적 격자 경로를 계산하고 있습니다", "선택 조건의 예시 Final Score를 비교합니다.");
@@ -327,6 +411,7 @@ async function findRoute() {
   } catch (error) {
     setPanel("경로를 생성하지 못했습니다", error.message);
   } finally {
+    state.isRouting = false;
     routeButton.textContent = "경로 탐색";
     updateRouteButton();
   }
@@ -342,5 +427,12 @@ document.querySelectorAll('input[name="distance"], input[name="start-mode"]').fo
   element.addEventListener("change", updateRouteButton);
 });
 routeButton.addEventListener("click", findRoute);
+validationClose.addEventListener("click", hideValidationModal);
+validationModal.addEventListener("click", function(event) {
+  if (event.target === validationModal) hideValidationModal();
+});
+document.addEventListener("keydown", function(event) {
+  if (event.key === "Escape") hideValidationModal();
+});
 
 initializeMap();
