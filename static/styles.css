@@ -21,6 +21,7 @@ body { margin: 0; min-width: 320px; background: var(--paper); color: var(--ink);
 .control span, .choice-group legend { padding: 0; color: var(--muted); font-size: 11px; font-weight: 700; }
 input, select { min-height: 36px; border: 1px solid var(--line); border-radius: 4px; padding: 7px 9px; color: var(--ink); background: var(--white); font: inherit; font-size: 13px; }
 .choice-group { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; max-width: 240px; }
+.run-type-group { max-width: 388px; }
 .choice-group legend { width: 100%; }
 .choice-group label { display: inline-flex; align-items: center; gap: 3px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 4px; color: var(--muted); font-size: 12px; cursor: pointer; }
 .choice-group input { min-height: auto; margin: 0; accent-color: var(--mint-dark); }

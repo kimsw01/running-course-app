@@ -5,3 +5,4 @@ shapely
 pyarrow
 pandas
 numpy
+holidays>=0.80

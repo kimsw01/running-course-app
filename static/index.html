@@ -36,13 +36,22 @@
           <label><input type="radio" name="start-mode" value="current"> <span>현재 위치 격자</span></label>
           <label><input type="radio" name="start-mode" value="best_within_1km"> <span>1km 이내 최고 Score</span></label>
         </fieldset>
+        <fieldset class="choice-group run-type-group">
+          <legend>러닝 유형</legend>
+          <label><input type="radio" name="run-type" value="basic_recommendation" checked> <span>기본 추천</span></label>
+          <label><input type="radio" name="run-type" value="recovery_beginner"> <span>회복 초보 러닝</span></label>
+          <label><input type="radio" name="run-type" value="pb_record"> <span>기록 PB 러닝</span></label>
+          <label><input type="radio" name="run-type" value="hill_training"> <span>경사 선호 코스</span></label>
+          <label><input type="radio" name="run-type" value="scenic_run"> <span>경관 러닝</span></label>
+          <label><input type="radio" name="run-type" value="long_run"> <span>Long Run</span></label>
+        </fieldset>
         <button id="route-button" type="button">경로 탐색</button>
       </div>
     </header>
 
     <section class="map-wrap" aria-label="서울 250m 격자 지도">
       <div id="map"></div>
-      <div class="map-note">DEMO FINAL SCORE · 예시 점수 데이터</div>
+      <div class="map-note">실제 점수 데이터 · 유형별 가중치 적용</div>
       <div class="legend" aria-label="최종 점수 범례">
         <span>낮은 점수</span><i></i><span>높은 점수</span>
       </div>

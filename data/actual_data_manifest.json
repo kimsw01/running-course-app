@@ -1,0 +1,22 @@
+{
+  "mode": "actual_data_ready",
+  "grid_count": 8730,
+  "grid_file": "grid.geojson",
+  "score_root": "runscore_base_service_parquet",
+  "score_partitioning": "month/day_type",
+  "score_partitions": 24,
+  "score_rows": 5028480,
+  "score_columns": [
+    "air_score_100",
+    "thermal_score_100",
+    "crowd_score_100",
+    "green_shade_score_100",
+    "slope_score_100",
+    "convenience_score_100"
+  ],
+  "source_whitelist": "01_final_used_8730.csv",
+  "static_score_files": {
+    "continuity_score": "continuity_scores.parquet"
+  },
+  "continuity_score_definition": "min(100, 25 * connected_neighbor_count)"
+}

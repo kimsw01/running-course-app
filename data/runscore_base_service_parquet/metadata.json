@@ -1,0 +1,37 @@
+{
+  "source_file": "RunScore_base.csv",
+  "allowed_grid_file": "grid/01_final_used_8730.csv",
+  "filter": {
+    "allowed_grid_count": 8730,
+    "excluded_grid_count": 6,
+    "crowd_missing": false
+  },
+  "partitioning": "month/day_type",
+  "partitions": 24,
+  "rows": 5028480,
+  "rows_per_partition": 209520,
+  "score_columns": [
+    "air_score_100",
+    "thermal_score_100",
+    "crowd_score_100",
+    "green_shade_score_100",
+    "slope_score_100",
+    "convenience_score_100"
+  ],
+  "columns": [
+    "grid_id",
+    "grid_key",
+    "district",
+    "month",
+    "day_type",
+    "hour",
+    "air_score_100",
+    "thermal_score_100",
+    "crowd_score_100",
+    "green_shade_score_100",
+    "slope_score_100",
+    "convenience_score_100",
+    "crowd_missing"
+  ],
+  "directory_layout": "month_01/day_type_Workday/runscore.parquet"
+}

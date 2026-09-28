@@ -1,8 +1,0 @@
-{
-  "mode": "demo",
-  "source_grid_reference": "running_map_share_final\\processed\\sceneario_outputs\\run_20260927_014459\\grid_running_final_m09_weekday_daytime.gpkg",
-  "grid_count": 8736,
-  "condition_count": 576,
-  "score_rows": 5031936,
-  "score_formula": "Deterministic synthetic demo score. Replace with actual final grid score data."
-}

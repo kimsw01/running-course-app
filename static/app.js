@@ -32,9 +32,8 @@ function selectedValue(name) {
   return choice ? choice.value : "";
 }
 
-function dayTypeLabel(dateText) {
-  const day = new Date(dateText + "T12:00:00").getDay();
-  return day === 0 || day === 6 ? "주말" : "평일";
+function dayTypeLabel(dayType) {
+  return dayType === "Holiday" ? "휴일" : "평일";
 }
 
 function missingConditionLabels() {
@@ -225,7 +224,8 @@ async function refreshScores() {
   if (!dateInput.value || hourInput.value === "" || !state.map || !state.map.isStyleLoaded()) {
     return;
   }
-  const url = "/api/scores?date=" + encodeURIComponent(dateInput.value) + "&hour=" + hourInput.value;
+  const runType = selectedValue("run-type") || "basic_recommendation";
+  const url = "/api/scores?date=" + encodeURIComponent(dateInput.value) + "&hour=" + hourInput.value + "&run_type=" + encodeURIComponent(runType);
   const response = await fetch(url);
   if (!response.ok) {
     setPanel("점수 데이터를 불러오지 못했습니다", "날짜와 시간을 다시 확인해 주세요.");
@@ -245,7 +245,7 @@ async function refreshScores() {
   if (!state.selected) {
     setPanel(
       "예시 점수 지도를 불러왔습니다",
-      payload.month + "월 " + dayTypeLabel(dateInput.value) + " " + String(payload.hour).padStart(2, "0") + ":00 조건입니다."
+      payload.month + "월 " + dayTypeLabel(payload.day_type) + " " + String(payload.hour).padStart(2, "0") + ":00 조건입니다."
     );
   }
 }
@@ -395,6 +395,7 @@ async function findRoute() {
     hour: Number(hourInput.value),
     distance_km: Number(selectedValue("distance")),
     start_mode: selectedValue("start-mode"),
+    run_type: selectedValue("run-type") || null,
     longitude: state.selected.longitude,
     latitude: state.selected.latitude,
   };
@@ -425,6 +426,12 @@ async function findRoute() {
 });
 document.querySelectorAll('input[name="distance"], input[name="start-mode"]').forEach(function(element) {
   element.addEventListener("change", updateRouteButton);
+});
+document.querySelectorAll('input[name="run-type"]').forEach(function(element) {
+  element.addEventListener("change", function() {
+    refreshScores();
+    updateRouteButton();
+  });
 });
 routeButton.addEventListener("click", findRoute);
 validationClose.addEventListener("click", hideValidationModal);
