@@ -236,7 +236,7 @@ def make_route_step(feature_id: int, score_map: dict[int, float], step: int) -> 
         "grid_id": properties["grid_id"],
         "longitude": properties["center_lng"],
         "latitude": properties["center_lat"],
-        "district": properties["district"],
+        "district": properties.get("admin_district", properties["district"]),
         "address_label": properties["address_label"],
         "score": round(float(score_map[feature_id]), 1),
     }
