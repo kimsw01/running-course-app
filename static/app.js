@@ -346,21 +346,23 @@ function animateRunnerRoute(route, token) {
   const routeCoordinates = route.map(function(step) {
     return [step.longitude, step.latitude];
   });
-  const startedAt = performance.now();
+  let startedAt = null;
   let lastVisitedIndex = 0;
   let lastDisplayedIndex = 0;
 
   return new Promise(function(resolve) {
-    function frame(now) {
+    function frame() {
       if (token !== state.animationToken || !state.runnerMarker) {
         resolve(false);
         return;
       }
 
       try {
-        const elapsed = now - startedAt;
+        const now = performance.now();
+        if (startedAt === null) startedAt = now;
+        const elapsed = Math.max(0, now - startedAt);
         const routeProgress = Math.min(elapsed / segmentDuration, finalStepIndex);
-        const segmentIndex = Math.min(Math.floor(routeProgress), finalStepIndex - 1);
+        const segmentIndex = Math.max(0, Math.min(Math.floor(routeProgress), finalStepIndex - 1));
         const segmentProgress = routeProgress - segmentIndex;
         const from = routeCoordinates[segmentIndex];
         const to = routeCoordinates[segmentIndex + 1];
