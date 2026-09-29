@@ -333,7 +333,7 @@ def build_greedy_route(
 
 @app.get("/")
 def index() -> FileResponse:
-    return FileResponse(STATIC_DIR / "index.html")
+    return FileResponse(STATIC_DIR / "index.html", headers={"Cache-Control": "no-store, max-age=0"})
 
 
 @app.get("/api/meta")
